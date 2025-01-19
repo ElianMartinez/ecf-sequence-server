@@ -23,8 +23,8 @@ func main() {
 	// Verificar si se ejecuta como administrador
 	isAdmin, err := isAdministrator()
 	if err != nil || !isAdmin {
-		fmt.Println("Este programa debe ejecutarse como administrador")
-		fmt.Println("Por favor, clic derecho -> Ejecutar como administrador")
+		fmt.Println("Este programa debe ejecutarse como Administrador.")
+		fmt.Println("Por favor, clic derecho -> 'Ejecutar como administrador'")
 		pressEnterToContinue()
 		return
 	}
@@ -35,7 +35,6 @@ func main() {
 	fmt.Print("Ruta del archivo DBF (ejemplo: C:\\facturacion\\FAC_PF_M.DBF): ")
 	fmt.Scanln(&dbfPath)
 
-	// Validar archivo DBF y CDX
 	if err := validateFiles(dbfPath); err != nil {
 		fmt.Printf("Error: %v\n", err)
 		pressEnterToContinue()
@@ -56,7 +55,7 @@ func main() {
 		return
 	}
 
-	// Obtener ruta del ejecutable del servicio
+	// Obtener ruta del ejecutable (ecf-sequence.exe)
 	exePath, err := getServiceExecutablePath()
 	if err != nil {
 		fmt.Printf("Error obteniendo ruta del ejecutable: %v\n", err)
@@ -64,13 +63,10 @@ func main() {
 		return
 	}
 
-	// Construir comando del servicio
-	cmd := fmt.Sprintf(`"%s" -dbf "%s" -port %s -key "%s"`, exePath, dbfPath, port, apiKey)
-
 	fmt.Println("\nInstalando servicio...")
 
-	// Instalar el servicio
-	if err := installService(cmd); err != nil {
+	// Instalar (o reinstalar) el servicio
+	if err := installService(exePath, dbfPath, port, apiKey); err != nil {
 		fmt.Printf("Error instalando el servicio: %v\n", err)
 		pressEnterToContinue()
 		return
@@ -84,30 +80,21 @@ func main() {
 		return
 	}
 
-	fmt.Println("\nServicio instalado exitosamente!")
+	fmt.Println("\nServicio instalado y en ejecución!")
 	fmt.Println("\nDetalles del servicio:")
 	fmt.Printf("Nombre: %s\n", serviceName)
 	fmt.Printf("Archivo ejecutable: %s\n", exePath)
 	fmt.Printf("Puerto: %s\n", port)
-	fmt.Printf("Archivos DBF: %s\n", dbfPath)
+	fmt.Printf("DBF: %s\n", dbfPath)
 
-	fmt.Println("\nPara probar el servicio, ejecute:")
-	fmt.Printf("curl -X POST http://localhost:%s/api/sequence -H \"Content-Type: application/json\" -H \"X-API-Key: %s\" -d \"{\\\"type\\\":\\\"E31\\\"}\"\n",
-		port, apiKey)
-
-	fmt.Println("\nPara verificar el estado del servicio:")
-	fmt.Printf("sc query %s\n", serviceName)
-
-	fmt.Println("\nPara detener el servicio:")
-	fmt.Printf("sc stop %s\n", serviceName)
-
-	fmt.Println("\nPara iniciar el servicio:")
-	fmt.Printf("sc start %s\n", serviceName)
+	fmt.Println("\nPara probar el servicio, por ejemplo:")
+	fmt.Printf("curl -X GET http://localhost:%s/health -H \"Content-Type: application/json\" -H \"X-API-Key: %s\" -d \"{\\\"type\\\":\\\"E31\\\"}\"\n", port, apiKey)
 
 	pressEnterToContinue()
 }
 
 func isAdministrator() (bool, error) {
+	// La forma más sencilla: si mgr.Connect() funciona, normalmente eres admin.
 	_, err := mgr.Connect()
 	if err == nil {
 		return true, nil
@@ -117,49 +104,45 @@ func isAdministrator() (bool, error) {
 
 func validateFiles(dbfPath string) error {
 	if _, err := os.Stat(dbfPath); os.IsNotExist(err) {
-		return fmt.Errorf("el archivo DBF no existe en: %s", dbfPath)
+		return fmt.Errorf("el archivo DBF no existe: %s", dbfPath)
 	}
-
 	cdxPath := strings.TrimSuffix(dbfPath, ".DBF") + ".CDX"
 	if _, err := os.Stat(cdxPath); os.IsNotExist(err) {
-		return fmt.Errorf("el archivo CDX no existe en: %s", cdxPath)
+		return fmt.Errorf("el archivo CDX no existe: %s", cdxPath)
 	}
-
 	return nil
 }
 
 func getServiceExecutablePath() (string, error) {
+	// Asumiendo que ecf-sequence.exe está en la misma carpeta que este instalador
 	execPath, err := os.Executable()
 	if err != nil {
 		return "", err
 	}
-
 	dir := filepath.Dir(execPath)
 	servicePath := filepath.Join(dir, "ecf-sequence.exe")
 
 	if _, err := os.Stat(servicePath); os.IsNotExist(err) {
-		return "", fmt.Errorf("no se encuentra ecf-sequence.exe en: %s", dir)
+		return "", fmt.Errorf("no se encuentra ecf-sequence.exe en la carpeta: %s", dir)
 	}
-
 	return servicePath, nil
 }
 
-func installService(cmd string) error {
-	// Conectar al administrador de servicios
+// installService crea/reemplaza el servicio con la ruta exe dada y argumentos extra
+func installService(exePath, dbfPath, port, apiKey string) error {
 	m, err := mgr.Connect()
 	if err != nil {
 		return fmt.Errorf("error conectando al service manager: %v", err)
 	}
 	defer m.Disconnect()
 
-	// Intentar abrir el servicio si existe
+	// Intentar abrir el servicio existente
 	s, err := m.OpenService(serviceName)
 	if err == nil {
-		// El servicio existe, intentar detenerlo primero
+		// El servicio ya existía, lo detenemos si está corriendo
 		status, _ := s.Query()
 		if status.State != svc.Stopped {
 			s.Control(svc.Stop)
-			// Esperar a que se detenga
 			for i := 0; i < 10; i++ {
 				time.Sleep(time.Second)
 				status, _ = s.Query()
@@ -168,35 +151,41 @@ func installService(cmd string) error {
 				}
 			}
 		}
-
-		// Eliminar el servicio existente
+		// Lo eliminamos
 		err = s.Delete()
 		s.Close()
 		if err != nil {
-			return fmt.Errorf("error eliminando servicio existente: %v", err)
+			return fmt.Errorf("no se pudo eliminar servicio previo: %v", err)
 		}
-
-		// Esperar un momento para asegurar que el servicio se eliminó
-		time.Sleep(2 * time.Second)
+		time.Sleep(2 * time.Second) // Espera breve
 	}
 
-	// Crear el nuevo servicio con configuración específica
+	// Crear config
 	config := mgr.Config{
 		DisplayName:      displayName,
 		StartType:        mgr.StartAutomatic,
 		Description:      description,
 		ServiceType:      windows.SERVICE_WIN32_OWN_PROCESS,
-		ServiceStartName: "NT AUTHORITY\\SYSTEM", // Ejecutar como LocalSystem
+		ServiceStartName: "NT AUTHORITY\\SYSTEM",
 		ErrorControl:     mgr.ErrorNormal,
 	}
 
-	s, err = m.CreateService(serviceName, cmd, config)
+	// Importante: exePath SIN argumentos
+	// Luego pasamos los argumentos en la llamada createService(...args)
+	args := []string{
+		"-dbf", dbfPath,
+		"-port", port,
+		"-key", apiKey,
+		// Quita -debug para forzar modo servicio
+	}
+
+	s, err = m.CreateService(serviceName, exePath, config, args...)
 	if err != nil {
 		return fmt.Errorf("error creando servicio: %v", err)
 	}
 	defer s.Close()
 
-	// Configurar acciones de recuperación
+	// Configurar acciones de recuperación (opcional)
 	recovery := []mgr.RecoveryAction{
 		{Type: mgr.ServiceRestart, Delay: time.Minute},
 		{Type: mgr.ServiceRestart, Delay: 2 * time.Minute},
@@ -214,6 +203,7 @@ func installService(cmd string) error {
 	return nil
 }
 
+// verifyServiceStatus espera hasta 10s a que el servicio llegue a Running
 func verifyServiceStatus() error {
 	m, err := mgr.Connect()
 	if err != nil {
@@ -227,24 +217,21 @@ func verifyServiceStatus() error {
 	}
 	defer s.Close()
 
-	// Esperar hasta 10 segundos para que el servicio inicie
 	for i := 0; i < 10; i++ {
 		status, err := s.Query()
 		if err != nil {
-			return fmt.Errorf("error consultando estado: %v", err)
+			return fmt.Errorf("error consultando estado del servicio: %v", err)
 		}
-
-		switch status.State {
-		case svc.Running:
-			fmt.Println("El servicio está ejecutándose correctamente")
+		if status.State == svc.Running {
+			fmt.Println("El servicio está ejecutándose correctamente.")
 			return nil
-		case svc.StartPending:
+		}
+		if status.State == svc.StartPending {
 			fmt.Println("El servicio está iniciando...")
 			time.Sleep(time.Second)
 			continue
-		default:
-			return fmt.Errorf("el servicio está en estado inesperado: %d", status.State)
 		}
+		return fmt.Errorf("el servicio está en estado inesperado: %d", status.State)
 	}
 
 	return fmt.Errorf("tiempo de espera agotado esperando que el servicio inicie")
