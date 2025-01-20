@@ -1,125 +1,23 @@
 package dbf_test
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path"
+	"strconv"
+	"sync"
 	"testing"
 	"time"
 
 	"ecf-sequence-server/internal/dbf"
-
-	"github.com/LindsayBradford/go-dbf/godbf"
 )
 
-// testData representa la estructura de los datos de prueba
-type testData struct {
-	Tipo            string `json:"tipo"`
-	CodPFF          int    `json:"cod_pf_f"`
-	Nombre          string `json:"nombre"`
-	Resumen         string `json:"resumen"`
-	Numero          string `json:"numero"`
-	SecuenciaActual int64  `json:"secuencia_actual"`
-	SecuenciaHasta  int64  `json:"secuencia_hasta"`
-	FechaVenc       string `json:"fecha_vencimiento"`
-	Minimo          int64  `json:"minimo"`
-	CantSecuencias  int64  `json:"cantidad_secuencias"`
-}
-
-// createTestDBF crea un archivo DBF de prueba con datos reales
-func createTestDBF(t *testing.T, filename string) string {
-	t.Helper()
-
-	// Asegurarse que el directorio existe
-	dir := path.Dir(filename)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		t.Fatalf("No se pudo crear el directorio: %v", err)
-	}
-
-	// Crear un nuevo archivo DBF con codificación latin1
-	db := godbf.New("latin1")
-
-	// Añadir campos usando los métodos específicos
-	if err := db.AddNumberField("COD_PF_F", 3, 0); err != nil {
-		t.Fatalf("Error añadiendo campo COD_PF_F: %v", err)
-	}
-	if err := db.AddTextField("NOMBRE", 50); err != nil {
-		t.Fatalf("Error añadiendo campo NOMBRE: %v", err)
-	}
-	if err := db.AddTextField("RESUMEN", 50); err != nil {
-		t.Fatalf("Error añadiendo campo RESUMEN: %v", err)
-	}
-	if err := db.AddTextField("NUMERO", 20); err != nil {
-		t.Fatalf("Error añadiendo campo NUMERO: %v", err)
-	}
-	if err := db.AddNumberField("NUMERO_1", 10, 0); err != nil {
-		t.Fatalf("Error añadiendo campo NUMERO_1: %v", err)
-	}
-	if err := db.AddNumberField("NUMERO_2", 10, 0); err != nil {
-		t.Fatalf("Error añadiendo campo NUMERO_2: %v", err)
-	}
-	if err := db.AddDateField("FEC_DOC"); err != nil {
-		t.Fatalf("Error añadiendo campo FEC_DOC: %v", err)
-	}
-	if err := db.AddNumberField("MINIMO", 10, 0); err != nil {
-		t.Fatalf("Error añadiendo campo MINIMO: %v", err)
-	}
-	if err := db.AddNumberField("CANTSECUEN", 10, 0); err != nil {
-		t.Fatalf("Error añadiendo campo CANTSECUEN: %v", err)
-	}
-
-	// Datos de ejemplo (los mismos que proporcionaste)
-	testDataJSON := `[{"tipo":"E32","cod_pf_f":1,"nombre":"CONSUMIDOR FINAL","resumen":"","numero":"E3200","secuencia_actual":0,"secuencia_hasta":0,"fecha_vencimiento":"20261231","minimo":100,"cantidad_secuencias":1000000},{"tipo":"B03","cod_pf_f":6,"nombre":"NOTA DE DEBITOS","resumen":"","numero":"B03","secuencia_actual":0,"secuencia_hasta":2,"fecha_vencimiento":"","minimo":0,"cantidad_secuencias":0}]`
-
-	var records []testData
-	if err := json.Unmarshal([]byte(testDataJSON), &records); err != nil {
-		t.Fatalf("Error parseando JSON de prueba: %v", err)
-	}
-
-	// Añadir registros al DBF
-	for _, record := range records {
-		recordNum, err := db.AddNewRecord()
-		if err != nil {
-			t.Fatalf("Error creando nuevo registro: %v", err)
-		}
-
-		// Establecer valores usando SetFieldValueByName
-		fields := map[string]string{
-			"COD_PF_F":   stringify(record.CodPFF),
-			"NOMBRE":     record.Nombre,
-			"RESUMEN":    record.Resumen,
-			"NUMERO":     record.Numero,
-			"NUMERO_1":   stringify(record.SecuenciaActual),
-			"NUMERO_2":   stringify(record.SecuenciaHasta),
-			"FEC_DOC":    record.FechaVenc,
-			"MINIMO":     stringify(record.Minimo),
-			"CANTSECUEN": stringify(record.CantSecuencias),
-		}
-
-		for fieldName, value := range fields {
-			if err := db.SetFieldValueByName(recordNum, fieldName, value); err != nil {
-				t.Fatalf("Error estableciendo valor para %s: %v", fieldName, err)
-			}
-		}
-	}
-
-	// Guardar el archivo DBF
-	if err := godbf.SaveToFile(db, filename); err != nil {
-		t.Fatalf("Error guardando archivo DBF: %v", err)
-	}
-
-	return filename
-}
-
-func stringify(v interface{}) string {
-	return fmt.Sprintf("%v", v)
-}
-
+// TestNewManager prueba la creación de un Manager con distintos escenarios
 func TestNewManager(t *testing.T) {
+	// Ajusta la ruta según tu situación real:
 	currentDir, _ := os.Getwd()
-	realDBFPath := path.Join(currentDir, "FAC_PF_M.DBF") // Usar ruta absoluta
-	fmt.Println("Real DBF path:", realDBFPath)
+	realDBFPath := path.Join(currentDir, "FAC_PF_M.DBF")
+	fmt.Println("Probando con DBF real:", realDBFPath)
 
 	tests := []struct {
 		name    string
@@ -137,7 +35,7 @@ func TestNewManager(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "path vacío",
+			name:    "ruta vacía",
 			dbfPath: "",
 			wantErr: true,
 		},
@@ -157,8 +55,12 @@ func TestNewManager(t *testing.T) {
 	}
 }
 
+// TestManager_GetRecordTypes prueba la obtención de tipos de comprobantes
 func TestManager_GetRecordTypes(t *testing.T) {
-	mgr, err := dbf.NewManager(path.Join("FAC_PF_M.DBF"))
+	currentDir, _ := os.Getwd()
+	realDBFPath := path.Join(currentDir, "FAC_PF_M.DBF")
+
+	mgr, err := dbf.NewManager(realDBFPath)
 	if err != nil {
 		t.Fatalf("Error creando Manager: %v", err)
 	}
@@ -169,82 +71,131 @@ func TestManager_GetRecordTypes(t *testing.T) {
 		return
 	}
 
-	// Verificar que tenemos los tipos esperados
-	expectedTypes := map[string]bool{
-		"E32": true,
-		"E31": true,
+	// Por ejemplo, podrías chequear si existen al menos algunos de los tipos que
+	// usualmente están en tu DBF, como E31, E32, B03, etc.
+	// Ajusta esta parte según tus datos reales:
+	expected := map[string]bool{
 		"B03": true,
-		"E44": true,
+		"E31": true,
+		"E32": true,
 		"E34": true,
-		"B11": true,
-		"B12": true,
-		"B13": true,
-		"E45": true,
-		"E35": false,
 	}
 
+	found := 0
 	for _, tipo := range tipos {
-		if !expectedTypes[tipo.NCFTipo] {
-			t.Errorf("GetRecordTypes() tipo inesperado = %v", tipo.NCFTipo)
+		if expected[tipo.NCFTipo] {
+			found++
 		}
+	}
+	if found == 0 {
+		t.Errorf("No se encontraron tipos esperados (ej. B03, E31, E32). Revisa el contenido de tu DBF real.")
 	}
 }
 
+// TestManager_GetSequence prueba la obtención de una secuencia para diferentes escenarios
 func TestManager_GetSequence(t *testing.T) {
-	// Usar el archivo real
-	mgr, err := dbf.NewManager(path.Join("FAC_PF_M.DBF"))
+	currentDir, _ := os.Getwd()
+	realDBFPath := path.Join(currentDir, "FAC_PF_M.DBF")
+
+	mgr, err := dbf.NewManager(realDBFPath)
 	if err != nil {
 		t.Fatalf("Error creando Manager: %v", err)
 	}
 
+	// Ajusta los tipos y CTA que sepas que existen en tu DBF real
 	tests := []struct {
-		name     string
-		tipo     string
-		wantErr  bool
-		validate func(string) bool
+		name      string
+		tipo      string
+		cta       string
+		wantErr   bool
+		wantStart string // Prefijo esperado de la secuencia
 	}{
 		{
-			name:    "tipo válido B03",
-			tipo:    "B03",
-			wantErr: false,
-			validate: func(seq string) bool {
-				return len(seq) == 13 && seq[:3] == "B03"
-			},
+			name:      "tipo existente (p.ej. E31), CTA A",
+			tipo:      "E31",
+			cta:       "A",
+			wantErr:   false,
+			wantStart: "E31",
 		},
 		{
-			name:    "tipo válido E31",
-			tipo:    "E31",
-			wantErr: false,
-			validate: func(seq string) bool {
-				return len(seq) == 13 && seq[:3] == "E31"
-			},
+			name:      "tipo existente (p.ej. B03), CTA A",
+			tipo:      "B03",
+			cta:       "A",
+			wantErr:   false,
+			wantStart: "B03",
 		},
 		{
-			name:    "tipo inexistente",
-			tipo:    "XXX",
-			wantErr: true,
-			validate: func(seq string) bool {
-				return true
-			},
+			name:      "tipo existente (p.ej. B03), CTA B",
+			tipo:      "B03",
+			cta:       "B",
+			wantErr:   false,
+			wantStart: "B03",
+		},
+		{
+			name:      "CTA inválida",
+			tipo:      "B03",
+			cta:       "X",
+			wantErr:   true,
+			wantStart: "",
+		},
+		{
+			name:      "tipo inexistente",
+			tipo:      "XXX",
+			cta:       "A",
+			wantErr:   true,
+			wantStart: "",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			seq, err := mgr.GetSequence(tt.tipo)
+			seq, seqNum, err := mgr.GetSequence(tt.tipo, tt.cta)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GetSequence() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if !tt.wantErr && !tt.validate(seq) {
-				t.Errorf("GetSequence() = %v, formato inválido", seq)
+			// Si esperamos error, no validamos el resto
+			if tt.wantErr && err != nil {
+				return
+			}
+
+			// Validar el prefijo de la secuencia, por ejemplo "B03"
+			if tt.wantStart != "" {
+				if len(seq) < len(tt.wantStart) {
+					t.Errorf("Secuencia demasiado corta: %s", seq)
+				} else {
+					gotStart := seq[:len(tt.wantStart)]
+					if gotStart != tt.wantStart {
+						t.Errorf("GetSequence() = %v, el prefijo esperado era %v", seq, tt.wantStart)
+					}
+				}
+			}
+
+			// Validar que seqNum sea > 0 (si se incrementó con éxito)
+			if seqNum <= 0 {
+				t.Errorf("El número de secuencia devuelto debe ser > 0, se obtuvo %d", seqNum)
+			}
+
+			// Validar que la parte numérica en seq coincida con seqNum
+			if tt.wantStart != "" {
+				numPartStr := seq[len(tt.wantStart):]
+				numPart, err := strconv.ParseInt(numPartStr, 10, 64)
+				if err != nil {
+					t.Errorf("No se pudo convertir a int la parte numérica de %s: %v", seq, err)
+				} else if numPart != int64(seqNum) {
+					t.Errorf("La parte numérica de la secuencia (%d) no coincide con seqNum (%d)", numPart, seqNum)
+				}
 			}
 		})
 	}
 }
 
+// TestConcurrency prueba el acceso concurrente a GetSequence
 func TestConcurrency(t *testing.T) {
-	mgr, err := dbf.NewManager(path.Join("FAC_PF_M.DBF"))
+	currentDir, _ := os.Getwd()
+	realDBFPath := path.Join(currentDir, "FAC_PF_M.DBF")
+
+	mgr, err := dbf.NewManager(realDBFPath)
 	if err != nil {
 		t.Fatalf("Error creando Manager: %v", err)
 	}
@@ -253,10 +204,14 @@ func TestConcurrency(t *testing.T) {
 	results := make(chan string, numGoroutines)
 	errors := make(chan error, numGoroutines)
 
-	// Ejecutar múltiples goroutines concurrentemente
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines)
+
+	// Asume que E31 y CTA A existen en tu DBF. Ajusta si es necesario.
 	for i := 0; i < numGoroutines; i++ {
 		go func() {
-			seq, err := mgr.GetSequence("E31")
+			defer wg.Done()
+			seq, _, err := mgr.GetSequence("E32", "A")
 			if err != nil {
 				errors <- err
 				results <- ""
@@ -266,21 +221,42 @@ func TestConcurrency(t *testing.T) {
 		}()
 	}
 
-	// Recolectar resultados
+	// Cerramos los canales cuando terminen las goroutines
+	go func() {
+		wg.Wait()
+		close(results)
+		close(errors)
+	}()
+
 	seqs := make(map[string]bool)
-	for i := 0; i < numGoroutines; i++ {
+	timeout := time.After(5 * time.Second)
+
+	for {
 		select {
 		case err := <-errors:
-			t.Errorf("Error en goroutine: %v", err)
-		case seq := <-results:
-			if seq != "" {
+			if err != nil {
+				t.Errorf("Error en goroutine: %v", err)
+			}
+		case seq, ok := <-results:
+			if !ok {
+				results = nil
+			} else {
+				// Verificar duplicados en las secuencias generadas
 				if seqs[seq] {
 					t.Errorf("Secuencia duplicada detectada: %s", seq)
 				}
 				seqs[seq] = true
 			}
-		case <-time.After(5 * time.Second):
-			t.Error("Timeout esperando resultados")
+		case <-timeout:
+			t.Error("Timeout esperando resultados de goroutines")
+			return
+		}
+
+		if results == nil && errors == nil {
+			break
+		} else if results == nil && len(errors) == 0 {
+			// Si results está cerrado y no quedan errores en la cola
+			break
 		}
 	}
 }

@@ -139,67 +139,63 @@ func (m *Manager) GetRecordTypes() ([]ComprobanteTipo, error) {
 	return tipos, nil
 }
 
-// GetSequence busca el registro cuyo NUMERO comience con 'tipo',
-// incrementa NUMERO_1 en 1, guarda el DBF y devuelve la nueva secuencia
-func (m *Manager) GetSequence(tipo string) (string, error) {
+// ...existing code...
+func (m *Manager) GetSequence(tipo string, cta string) (string, int64, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// 1. Abrimos el DBF
 	table, err := godbf.NewFromFile(m.dbfPath, "latin1")
 	if err != nil {
-		return "", fmt.Errorf("error abriendo DBF: %v", err)
+		return "", 0, fmt.Errorf("error abriendo DBF: %v", err)
 	}
 
 	var found bool
 	var newSeqVal int64
+	var fieldName string
 
-	// 2. Buscamos el registro que tenga NUMERO con el prefijo buscado
+	// Determina si se incrementa NUMERO_1 o NUMERO_2
+	switch strings.ToUpper(cta) {
+	case "A":
+		fieldName = "NUMERO_1"
+	case "B":
+		fieldName = "NUMERO_2"
+	default:
+		return "", 0, fmt.Errorf("CTA no válido: %s", cta)
+	}
+
 	totalRecords := table.NumberOfRecords()
 	for i := 0; i < totalRecords; i++ {
 		if table.RowIsDeleted(i) {
 			continue
 		}
-
 		numeroStr, err := table.FieldValueByName(i, "NUMERO")
 		if err != nil {
-			continue // O maneja el error como prefieras
+			continue
 		}
 		numeroStr = strings.TrimSpace(numeroStr)
 
-		// ¿Es el que buscamos?
 		if strings.HasPrefix(numeroStr, tipo) {
-			// 2.1 Leer el campo NUMERO_1
-			seqVal, _ := table.Int64FieldValueByName(i, "NUMERO_1")
-
-			// 2.2 Incrementamos
+			seqVal, _ := table.Int64FieldValueByName(i, fieldName)
 			newSeqVal = seqVal + 1
 
-			// 2.3 Guardamos de vuelta en la tabla (como string)
-			err := table.SetFieldValueByName(i, "NUMERO_1", strconv.FormatInt(newSeqVal, 10))
+			err := table.SetFieldValueByName(i, fieldName, strconv.FormatInt(newSeqVal, 10))
 			if err != nil {
-				return "", fmt.Errorf("error setFieldValue: %v", err)
+				return "", 0, fmt.Errorf("error setFieldValue: %v", err)
 			}
-
 			found = true
 			break
 		}
 	}
 
 	if !found {
-		return "", fmt.Errorf("tipo de comprobante no encontrado: %s", tipo)
+		return "", 0, fmt.Errorf("tipo de comprobante no encontrado: %s", tipo)
 	}
 
-	// 3. Guardamos cambios al archivo DBF
-	err = godbf.SaveToFile(table, m.dbfPath)
-	if err != nil {
-		return "", fmt.Errorf("error guardando DBF: %v", err)
+	if err := godbf.SaveToFile(table, m.dbfPath); err != nil {
+		return "", 0, fmt.Errorf("error guardando DBF: %v", err)
 	}
 
-	// 4. Construimos la secuencia final y hacemos log
-	//    Por ejemplo: B03 + zero-padded de 10 dígitos => "B030000000123"
 	sequence := fmt.Sprintf("%s%010d", tipo, newSeqVal)
 	m.Log(fmt.Sprintf("Generated sequence: %s", sequence))
-
-	return sequence, nil
+	return sequence, newSeqVal, nil
 }

@@ -8,7 +8,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strings"
 	"time"
 
 	"golang.org/x/sys/windows/svc"
@@ -128,23 +127,30 @@ func (m *apiServerService) runHTTPServer() {
 		}
 		var req struct {
 			Type string `json:"type"`
+			CTA  string `json:"cta"` // A: Default  - B: Cuenta Izquierda
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "Solicitud inválida", http.StatusBadRequest)
 			return
 		}
-		if !strings.HasPrefix(req.Type, "E") || len(req.Type) != 3 {
+		if len(req.Type) != 3 {
 			http.Error(w, "Tipo de secuencia inválido", http.StatusBadRequest)
 			return
 		}
-		sequence, err := m.manager.GetSequence(req.Type)
+
+		//validar CTA y is es B o A y si no hay valor que sea A por default
+		if req.CTA == "" || (req.CTA != "A" && req.CTA != "B") {
+			req.CTA = "A"
+		}
+
+		sequence, num, err := m.manager.GetSequence(req.Type, req.CTA)
 		if err != nil {
 			m.manager.Log(fmt.Sprintf("Error generando secuencia: %v", err))
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"sequence": sequence})
+		json.NewEncoder(w).Encode(map[string]string{"sequence": sequence, "sequenceNumber": fmt.Sprintf("%d", num)})
 	})
 
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
