@@ -29,22 +29,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: "1.21.5" # Versión específica en lugar de "1.23"
+          go-version: "1.23.5" # Versión específica en lugar de "1.23"
           check-latest: false # No buscar actualizaciones
-          cache: true
-          cache-dependency-path: go.sum
-
-      # Optimizar el caché para Windows
-      - name: Go Build Cache
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~\AppData\Local\go-build
-            ~\go\pkg\mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}-${{ hashFiles('**/*.go') }}
-          restore-keys: |
-            ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}-
-            ${{ runner.os }}-go-
 
       # Descargar dependencias en modo verify
       - name: Download dependencies
