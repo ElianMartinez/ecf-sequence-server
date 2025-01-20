@@ -15,7 +15,6 @@ jobs:
     name: Run Tests
     runs-on: windows-latest
 
-    # Previene ejecuciones redundantes
     concurrency:
       group: ${{ github.workflow }}-${{ github.ref }}
       cancel-in-progress: true
@@ -25,19 +24,17 @@ jobs:
         with:
           fetch-depth: 1
 
-      # Usar una versión específica de Go en lugar de la última
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: "1.23.5" # Versión específica en lugar de "1.23"
-          check-latest: false # No buscar actualizaciones
+          go-version: "1.23.5"
+          check-latest: false
+          cache: false
 
-      # Descargar dependencias en modo verify
       - name: Download dependencies
         run: go mod download -x
 
-      # Ejecutar tests con timeout
       - name: Run tests
         run: go test -timeout 30s ./...
         env:
-          CGO_ENABLED: 0 # Deshabilitar CGO para builds más rápidos
+          CGO_ENABLED: 0
