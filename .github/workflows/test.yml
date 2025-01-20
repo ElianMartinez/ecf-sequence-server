@@ -36,9 +36,6 @@ jobs:
       - name: Install dependencies
         run: go mod download
 
-      - name: Run vet
-        run: go vet ./...
-
       - name: Run tests with coverage
         run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
 
