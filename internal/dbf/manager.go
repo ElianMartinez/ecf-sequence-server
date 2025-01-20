@@ -42,13 +42,14 @@ func NewManager(dbfPath string) (*Manager, error) {
 		return nil, fmt.Errorf("error creating log file: %v", err)
 	}
 
+	//valida que el archivo DBF exista
+	if _, err := os.Stat(dbfPath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("el archivo DBF no existe: %s", dbfPath)
+	}
+
 	// Como el CDX no lo manejamos con la librería godbf, podrías simplemente
 	// omitir esta parte o validarla como en tu ejemplo original.
 	cdxPath := strings.TrimSuffix(dbfPath, ".DBF") + ".CDX"
-	if _, err := os.Stat(cdxPath); os.IsNotExist(err) {
-		log.Printf("Warning: CDX file not found: %s (continúa sin índice)", cdxPath)
-		// Podrías retornar un error o simplemente seguir.
-	}
 
 	return &Manager{
 		dbfPath: dbfPath,
