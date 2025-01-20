@@ -55,7 +55,8 @@ jobs:
 
       - name: Build executables
         run: |
-          mkdir -p build
+          if (Test-Path -Path build) { Remove-Item -Path build -Recurse -Force }
+          mkdir build
           go build -o build/ecf-sequence.exe -ldflags="-s -w" ./cmd/server
           go build -o build/install.exe -ldflags="-s -w" ./cmd/install
         env:
