@@ -35,7 +35,6 @@ jobs:
         run: go mod download -x
 
       - name: Run tests
-        run: go test cmd\server\main_test.go  && go test internal\dbf\manager_test.go
-
+        run: go test ./...
         env:
           CGO_ENABLED: 0
