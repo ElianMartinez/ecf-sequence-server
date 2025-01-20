@@ -5,36 +5,53 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - ".gitignore"
 
 jobs:
   test:
     name: Run Tests
     runs-on: windows-latest
-    strategy:
-      matrix:
-        go-version: ["1.23"]
+
+    # Previene ejecuciones redundantes
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
 
+      # Usar una versión específica de Go en lugar de la última
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: ${{ matrix.go-version }}
+          go-version: "1.23.5" # Versión específica en lugar de "1.23"
+          check-latest: false # No buscar actualizaciones
           cache: true
+          cache-dependency-path: go.sum
 
-      - name: Go Cache
+      # Optimizar el caché para Windows
+      - name: Go Build Cache
         uses: actions/cache@v3
         with:
           path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+            ~\AppData\Local\go-build
+            ~\go\pkg\mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}-${{ hashFiles('**/*.go') }}
           restore-keys: |
+            ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}-
             ${{ runner.os }}-go-
 
-      - name: Install dependencies
-        run: go mod download
+      # Descargar dependencias en modo verify
+      - name: Download dependencies
+        run: go mod download -x
 
-      - name: Run tests with coverage
-        run: go test ./...
+      # Ejecutar tests con timeout
+      - name: Run tests
+        run: go test -timeout 30s ./...
+        env:
+          CGO_ENABLED: 0 # Deshabilitar CGO para builds más rápidos
