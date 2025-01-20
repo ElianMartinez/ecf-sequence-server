@@ -38,20 +38,14 @@ jobs:
     needs: test
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: windows-latest
+    permissions: # Agregar permisos explícitos
+      contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4 # Asegurar que tenemos el código
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
           go-version: "1.23.5"
-
-      - name: Download dependencies
-        run: go mod download -x
-
-      - name: Run tests
-        run: go test ./...
-        env:
-          CGO_ENABLED: 0
 
       - name: Build executables
         run: |
@@ -66,12 +60,12 @@ jobs:
 
       - name: Create ZIP archive
         run: |
-          Compress-Archive -Path build\*.exe -DestinationPath build\ecf-sequence.zip
+          Compress-Archive -Path build/*.exe -DestinationPath build/ecf-sequence.zip
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
-          files: build\ecf-sequence.zip
+          files: build/ecf-sequence.zip # Usar forward slash
           draft: false
           prerelease: false
         env:
